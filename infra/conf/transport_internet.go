@@ -16,8 +16,6 @@ import (
 	"github.com/xtls/xray-core/common/platform/filesystem"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/transport/internet"
-	httpheader "github.com/xtls/xray-core/transport/internet/headers/http"
-	"github.com/xtls/xray-core/transport/internet/http"
 	"github.com/xtls/xray-core/transport/internet/httpupgrade"
 	"github.com/xtls/xray-core/transport/internet/kcp"
 	"github.com/xtls/xray-core/transport/internet/reality"
@@ -339,51 +337,6 @@ func (c *SplitHTTPConfig) Build() (proto.Message, error) {
 		}
 		if config.DownloadSettings, err = c.DownloadSettings.Build(); err != nil {
 			return nil, errors.New(`Failed to build "downloadSettings".`).Base(err)
-		}
-	}
-	return config, nil
-}
-
-type HTTPConfig struct {
-	Host               *StringList            `json:"host"`
-	Path               string                 `json:"path"`
-	ReadIdleTimeout    int32                  `json:"read_idle_timeout"`
-	HealthCheckTimeout int32                  `json:"health_check_timeout"`
-	Method             string                 `json:"method"`
-	Headers            map[string]*StringList `json:"headers"`
-}
-
-// Build implements Buildable.
-func (c *HTTPConfig) Build() (proto.Message, error) {
-	if c.ReadIdleTimeout <= 0 {
-		c.ReadIdleTimeout = 0
-	}
-	if c.HealthCheckTimeout <= 0 {
-		c.HealthCheckTimeout = 0
-	}
-	config := &http.Config{
-		Path:               c.Path,
-		IdleTimeout:        c.ReadIdleTimeout,
-		HealthCheckTimeout: c.HealthCheckTimeout,
-	}
-	if c.Host != nil {
-		config.Host = []string(*c.Host)
-	}
-	if c.Method != "" {
-		config.Method = c.Method
-	}
-	if len(c.Headers) > 0 {
-		config.Header = make([]*httpheader.Header, 0, len(c.Headers))
-		headerNames := sortMapKeys(c.Headers)
-		for _, key := range headerNames {
-			value := c.Headers[key]
-			if value == nil {
-				return nil, errors.New("empty HTTP header value: " + key).AtError()
-			}
-			config.Header = append(config.Header, &httpheader.Header{
-				Name:  key,
-				Value: append([]string(nil), (*value)...),
-			})
 		}
 	}
 	return config, nil
@@ -714,10 +667,9 @@ func (p TransportProtocol) Build() (string, error) {
 	case "ws", "websocket":
 		return "websocket", nil
 	case "h2", "h3", "http":
-		errors.PrintDeprecatedFeatureWarning("HTTP transport", "XHTTP transport")
-		return "http", nil
+		return "", errors.PrintRemovedFeatureError("HTTP transport", "XHTTP stream-one mode")
 	case "grpc":
-		errors.PrintMigrateFeatureInfo("gRPC transport", "XHTTP transport")
+		errors.PrintDeprecatedFeatureWarning("gRPC transport", "XHTTP stream-up mode")
 		return "grpc", nil
 	case "httpupgrade":
 		return "httpupgrade", nil
@@ -854,7 +806,6 @@ type StreamConfig struct {
 	TCPSettings         *TCPConfig         `json:"tcpSettings"`
 	KCPSettings         *KCPConfig         `json:"kcpSettings"`
 	WSSettings          *WebSocketConfig   `json:"wsSettings"`
-	HTTPSettings        *HTTPConfig        `json:"httpSettings"`
 	SocketSettings      *SocketConfig      `json:"sockopt"`
 	GRPCConfig          *GRPCConfig        `json:"grpcSettings"`
 	HTTPUPGRADESettings *HttpUpgradeConfig `json:"httpupgradeSettings"`
@@ -941,16 +892,6 @@ func (c *StreamConfig) Build() (*internet.StreamConfig, error) {
 		}
 		config.TransportSettings = append(config.TransportSettings, &internet.TransportConfig{
 			ProtocolName: "websocket",
-			Settings:     serial.ToTypedMessage(ts),
-		})
-	}
-	if c.HTTPSettings != nil {
-		ts, err := c.HTTPSettings.Build()
-		if err != nil {
-			return nil, errors.New("Failed to build HTTP config.").Base(err)
-		}
-		config.TransportSettings = append(config.TransportSettings, &internet.TransportConfig{
-			ProtocolName: "http",
 			Settings:     serial.ToTypedMessage(ts),
 		})
 	}
